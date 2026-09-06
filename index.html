@@ -3746,6 +3746,31 @@ for (const [id, fn] of [["pauseBtn", togglePause], ["muteBtn", toggleMute]]){
 }
 addEventListener("blur", ()=> held.clear());
 
+/* SAFARI'S ZOOM GESTURES DO NOT GO THROUGH touch-action. html, body and every
+   on-screen button already carry touch-action:none, and a phone still zoomed
+   -- because pinch and two-finger zoom are handled by the browser above the
+   page, and user-scalable=no in the viewport tag has been ignored by iOS since
+   iOS 10, deliberately, so that a page cannot trap someone who needs to
+   magnify it.
+   What IS refusable is WebKit's own gesture events, which is what two thumbs
+   landing together produce -- the reported case, since this game is played
+   with a thumb on each side and the two land within a few milliseconds of each
+   other constantly.
+   passive:false is load-bearing: a passive listener is not permitted to call
+   preventDefault, and registering one here would fail silently and look like
+   the fix simply did not work.
+   Double-tap zoom is NOT handled here on purpose. touch-action:none already
+   suppresses it, and a timing guard on touchend would also swallow the
+   synthetic click -- which would take out the two-tap select on touch, where
+   choosing an option and confirming it are deliberately two quick taps on the
+   same button. */
+for (const ev of ["gesturestart", "gesturechange", "gestureend"])
+  addEventListener(ev, e => e.preventDefault(), { passive:false });
+// A pinch that begins as movement rather than as a gesture. No click is
+// involved in a multi-touch move, so refusing it costs nothing.
+addEventListener("touchmove", e => { if (e.touches.length > 1) e.preventDefault(); },
+                 { passive:false });
+
 // Pointer and touch wake the cabinet too, on any device — not just the touch
 // build. Registered before the touch-only handler below, so by the time that
 // one runs the phase has already moved on and it cannot double-start.

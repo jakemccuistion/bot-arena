@@ -3753,7 +3753,14 @@ for (const [id, fn] of [["pauseBtn", togglePause], ["muteBtn", toggleMute]]){
     fn();
     e.currentTarget.blur();   // else SPACE later re-triggers the button
   });
-  el(id).addEventListener("pointerdown", e=> e.stopPropagation());
+  /* BOTH EVENTS, because the window handler listens for both. It stopped
+     pointerdown only, and a touch device fires touchstart as well -- so on a
+     phone the tap still reached the window, which resumed the game, and then
+     this button's own click paused it again. That is the "it unpauses for a
+     moment and then pauses" report, and it applies equally to SOUND, where the
+     stray wake was starting a match behind the button. */
+  for (const ev of ["pointerdown", "touchstart"])
+    el(id).addEventListener(ev, e=> e.stopPropagation());
 }
 addEventListener("blur", ()=> held.clear());
 
@@ -7286,7 +7293,7 @@ function togglePause(){
     Sound.hold();
     overlayHTML(`<div class="bigtitle" style="font-size:104px">PAUSED</div>
       ${controlsHTML()}
-      <div class="sub blink" style="font-size:26px">${prompt2("PRESS ESC TO RESUME","TAP &#10074;&#10074; TO RESUME")}</div>`);
+      <div class="sub blink" style="font-size:26px">${prompt2("PRESS ESC TO RESUME","TAP &#9654; TO RESUME")}</div>`);
   } else if (phase === "paused"){
     hideOverlay();
     el("pauseBtn").classList.remove("on");

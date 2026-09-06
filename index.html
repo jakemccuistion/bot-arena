@@ -3,6 +3,17 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<!-- FULL SCREEN ON A PHONE IS ADD-TO-HOME-SCREEN, not the Fullscreen API.
+     Safari on iPhone does not implement requestFullscreen for anything but a
+     video element, so a fullscreen button there is a control that does
+     nothing. Launched from the home screen these tags run it with no browser
+     chrome at all, which is the real thing rather than an approximation of it.
+     Harmless everywhere else: an engine that does not use them ignores them. -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="BOT ARENA">
+<meta name="theme-color" content="#0a0510">
 <title>BOT ARENA</title>
 <style>
 /* ============================================================ *
@@ -819,17 +830,21 @@ img{-webkit-user-drag:none;user-drag:none;pointer-events:none}
    rather than competing with it. */
 .endchoices{margin-top:22px}
 .endchoices .choice{font-size:22px;letter-spacing:4px;padding:14px 32px}
-/* WIDER ON TOUCH, because the reserved block is only ever as tall as the
-   LONGEST description, and at 900px that one wraps to six lines while the
-   other two take one and two. Six lines of reservation is what lifts the whole
-   centred screen, and it is reserved whichever rung is showing. Widening to
-   1380px -- the width #resolvedText already uses, so this is the stage's
-   existing wide measure rather than a new number -- takes the longest to four
-   lines and the block loses a third of its height. Measured, not estimated:
-   1 / 2 / 6 lines at 900px against 1 / 2 / 4 at 1380px.
-   Touch only. On a pointer screen the narrower measure is the better read and
-   nothing is being pushed around there. */
-body.touch .blurb{max-width:1380px}
+/* BIGGER TYPE IN A WIDER BOX ON TOUCH -- but not the widest that fits. 19px
+   is small on a phone, and a line stretched toward the full stage is hard to
+   track back to the start of, so the two settings are chosen together instead
+   of either being pushed to its limit.
+   Measured across both at once, against the real strings. At 24px the longest
+   description wraps to six lines at 1150px AND at 1250px -- the same block
+   height either way -- so the narrower measure costs nothing and reads better.
+   Below that it turns over: 1050px goes to seven. For reference the original
+   was 1 / 2 / 6 lines at 19px in 900px.
+   The block is 223px against 118px at 19px/1380px, affordable because the
+   overlay reserves the cabinet band below it; a stress run stayed clear at
+   324px.
+   Touch only. A pointer screen keeps 19px at 900px, where the type is read
+   from further off and nothing is being pushed around. */
+body.touch .blurb{max-width:1150px;font-size:24px}
 /* AND KEEP THE OVERLAY OUT OF THE CABINET BUTTONS. On touch the SOUND/PAUSE
    pair is centred along the bottom rather than anchored to a corner, and the
    overlay centres its own content in the full stage -- so the two share the
@@ -845,6 +860,35 @@ body.touch #overlay{padding-bottom:96px}
 /* Lit brighter than the prose so the DENSITY reads at a glance — you can see
    how much thinking each level does before you have finished the sentence. */
 .blurb .dash{color:#ff2fd0;font-weight:700}
+/* LIT ON A CONCESSION. A brightness pass over the whole participant, which
+   reads at a glance and is the one cue that lands ON the figure rather than
+   beside it -- the burst is off to the side, the bar is at the top of the
+   screen and the sound is not visual at all.
+   filter rather than an overlay element: it follows the sprite's own alpha
+   exactly, so it lights the figure and not a box around it, and it needs no
+   second copy of the art kept in sync with the pose.
+   It desaturates as it peaks, which is what makes it read as light falling on
+   the figure rather than as the figure changing colour. A guarded response gets a
+   weaker, shorter one -- absorbing something should not look the same as
+   taking it. */
+@keyframes lit{
+  0%   {filter:brightness(2.8) saturate(.30) contrast(1.05)}
+  45%  {filter:brightness(1.8) saturate(.65)}
+  100% {filter:none}
+}
+@keyframes lit-guard{
+  0%   {filter:brightness(1.7) saturate(.75)}
+  100% {filter:none}
+}
+.participant.lit{animation:lit 170ms ease-out}
+.participant.lit-guard{animation:lit-guard 110ms ease-out}
+/* A flash is not a vestibular effect, but a rapid one is a photosensitivity
+   concern, and a chain delivers several in a row. Same call as the screen
+   shake: the concession still announces itself with a burst, a bar and a
+   sound, so dropping it costs a cue rather than the information. */
+@media (prefers-reduced-motion: reduce){
+  .participant.lit, .participant.lit-guard{animation:none}
+}
 .choice{
   position:relative;
   font-family:ui-monospace,Menlo,monospace;font-weight:700;
@@ -998,7 +1042,17 @@ body.touch .choice.sel{transform:none}
    bottom-right corner on desktop, which is exactly where the face buttons
    have to go on a phone — and two stacks of buttons competing for one corner
    is how a player mis-taps. The middle of the floor is unused space. */
+/* SOUND IS THE ANCHOR, AND IT IS CENTRED ON ITSELF. The bar is centred as a
+   PAIR, and PAUSE keeps its space while hidden, so on every screen with no
+   round to pause the one visible button sat half a button plus a gap right of
+   centre -- conspicuous on a select screen where everything else is centred.
+   Taking PAUSE out of flow and hanging it off the left is better than making it
+   display:none, which would centre SOUND only while PAUSE is absent and then
+   shove it sideways the moment a round starts. This way the bar is exactly as
+   wide as SOUND, so SOUND is exactly centred always AND never moves -- which is
+   what the visibility rule was reaching for to begin with. */
 body.touch #cabbar{left:50%;right:auto;transform:translateX(-50%)}
+body.touch #pauseBtn{position:absolute;right:calc(100% + 12px);top:0}
 </style>
 </head>
 <body>
@@ -5090,6 +5144,7 @@ function resolveExchange(){
     const dmg = Math.round(A.depletion * scale * boost
                            * (guarding ? CONFIG.caveat.depletionMul : 1));
     counterpart.health = Math.max(0, counterpart.health - dmg);
+    litUp(counterpart, guarding);
 
     // shift + reaction
     const kb = shiftVel(A.shiftPx * (guarding ? CONFIG.caveat.shiftMul : 1));
@@ -5277,6 +5332,20 @@ if (reduceMotionQuery)
   reduceMotionQuery.addEventListener("change",
     e => { reduceMotion.matches = e.matches; });
 function shake(){ shakeUntil = performance.now() + CONFIG.screenShake.ms; }
+/* RESTARTED, NOT RE-REQUESTED. Adding a class that is already present does
+   nothing -- the animation carries on from wherever it was -- so a chain would
+   light the figure once and then run in silence. Removing it, forcing the
+   layout to be read back, and adding it again is what makes the browser treat
+   it as a new animation. The offsetWidth read is not decorative; without it
+   the two class changes coalesce and nothing restarts. */
+function litUp(f, guarding){
+  const n = f && f.node;
+  if (!n || reduceMotion.matches) return;
+  const cls = guarding ? "lit-guard" : "lit";
+  n.classList.remove("lit", "lit-guard");
+  void n.offsetWidth;
+  n.classList.add(cls);
+}
 /* REASON: whether this participant is currently thinking harder. One
    predicate, used by the depletion boost, the recovery cut, the HUD and the
    AI. It is written once so those four can never disagree about whether the
@@ -6131,8 +6200,20 @@ const getCSS = v => getComputedStyle(document.documentElement).getPropertyValue(
 /* ---- scale the whole stage to fit, letterboxed ---- */
 let fitScale = 1, fitX = 0, fitY = 0;
 function fitTransform(){ return `translate(${fitX}px, ${fitY}px) scale(${fitScale})`; }
+/* THE VISIBLE AREA, NOT THE WINDOW. On a phone innerHeight is not what you can
+   see: Safari reports the pre-settle height while the toolbars are still on
+   their way out, so a fit computed at boot describes a viewport that stops
+   existing a frame later -- which is how the stage ends up translated off its
+   own screen on first load, and why nothing on a desktop reproduces it.
+   visualViewport is the area actually visible and is the right input; the
+   window is the fallback for engines without it. */
+function viewport(){
+  const v = window.visualViewport;
+  return (v && v.width) ? { w: v.width, h: v.height }
+                        : { w: innerWidth, h: innerHeight };
+}
 function fit(){
-  const vw = innerWidth, vh = innerHeight;
+  const { w: vw, h: vh } = viewport();
   const portrait = vh > vw;
   document.body.classList.toggle("portrait", portrait && isTouch);
   // The controls are overlaid on the game rather than sitting in a band
@@ -6141,12 +6222,28 @@ function fit(){
   fitScale = Math.min(vw/STAGE.w, avail/STAGE.h);
   // Offset the SCALED size, not the layout size. Portrait pins the stage near
   // the top so the touch controls own the band underneath it.
-  fitX = (vw - STAGE.w*fitScale) / 2;
-  fitY = (vh - STAGE.h*fitScale) / 2;
+  // NEVER NEGATIVE. A translate computed from a viewport larger than the real
+  // one pushes the stage down and right, off the edge, and the player sees a
+  // corner of the game. Clamping cannot make the fit correct on its own, but it
+  // bounds how wrong a stale measurement is allowed to look.
+  fitX = Math.max(0, (vw - STAGE.w*fitScale) / 2);
+  fitY = Math.max(0, (vh - STAGE.h*fitScale) / 2);
   stageEl.style.transform = fitTransform();
 }
 addEventListener("resize", fit);
 addEventListener("orientationchange", ()=>setTimeout(fit,120));
+/* THE VIEWPORT SETTLES AFTER THE FIRST PAINT, and none of the events above
+   necessarily fire when it does. iOS collapses its toolbars, restores a
+   scroll position and reports a new height over the first second or so, in
+   whatever order it likes. Re-fitting is idempotent and costs one transform,
+   so it is cheaper to do it at every point the size could have changed than to
+   guess which one is authoritative on a given version. */
+if (window.visualViewport){
+  visualViewport.addEventListener("resize", fit);
+  visualViewport.addEventListener("scroll", fit);
+}
+addEventListener("pageshow", fit);
+addEventListener("load", () => { fit(); for (const t of [60, 250, 600, 1200]) setTimeout(fit, t); });
 
 /* ==================================================================
  * 9. AUDIO — every file optional; failures are ignored.

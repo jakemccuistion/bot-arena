@@ -39,6 +39,14 @@ img{-webkit-user-drag:none;user-drag:none;pointer-events:none}
 /* The stage: fixed internal pixel size, scaled via transform. */
 #stage{
   position:absolute;left:0;top:0;
+  /* NO FONT INFLATION. Safari on a phone enlarges text it judges too small for
+     the viewport, per block. Every measurement in this design is against a
+     fixed 1600x900 stage that is then scaled to fit, so text growing
+     independently of that scale makes a block taller than the layout it was
+     measured for -- which is why a description can be taller here than in any
+     desktop engine. The design is already scaled to the screen; it does not
+     want a second, uninvited scale on the type alone. */
+  -webkit-text-size-adjust:100%;text-size-adjust:100%;
   width:1600px;height:900px;
   transform-origin:0 0;      /* fit() supplies the centring translate */
   background:#120a1c;
@@ -811,6 +819,27 @@ img{-webkit-user-drag:none;user-drag:none;pointer-events:none}
    rather than competing with it. */
 .endchoices{margin-top:22px}
 .endchoices .choice{font-size:22px;letter-spacing:4px;padding:14px 32px}
+/* WIDER ON TOUCH, because the reserved block is only ever as tall as the
+   LONGEST description, and at 900px that one wraps to six lines while the
+   other two take one and two. Six lines of reservation is what lifts the whole
+   centred screen, and it is reserved whichever rung is showing. Widening to
+   1380px -- the width #resolvedText already uses, so this is the stage's
+   existing wide measure rather than a new number -- takes the longest to four
+   lines and the block loses a third of its height. Measured, not estimated:
+   1 / 2 / 6 lines at 900px against 1 / 2 / 4 at 1380px.
+   Touch only. On a pointer screen the narrower measure is the better read and
+   nothing is being pushed around there. */
+body.touch .blurb{max-width:1380px}
+/* AND KEEP THE OVERLAY OUT OF THE CABINET BUTTONS. On touch the SOUND/PAUSE
+   pair is centred along the bottom rather than anchored to a corner, and the
+   overlay centres its own content in the full stage -- so the two share the
+   same middle column, and the last line of any screen tall enough to reach the
+   bottom lands underneath them. Seen on a phone: TAP TO CONTINUE printed
+   through the sound button.
+   Reserving the band the buttons occupy (56px tall on a 24px inset) means the
+   centred content is centred in what is actually free, so the collision cannot
+   come back the next time a description grows. */
+body.touch #overlay{padding-bottom:96px}
 .blurb > *{grid-area:1/1;visibility:hidden}
 .blurb > .on{visibility:visible}
 /* Lit brighter than the prose so the DENSITY reads at a glance — you can see

@@ -3356,6 +3356,7 @@ const bust = u => u + (u.includes("?") ? "&" : "?") + "v=" + CONFIG.art.version;
 const STAGE = CONFIG.stage;
 const el = id => document.getElementById(id);
 const stageEl = el("stage");
+const touchEl = el("touch");
 
 /* players + humanSide, deliberately not a twoPlayer boolean. A boolean can
    only express whether Volt is a CPU. That hard-wires the human to slot 0, and
@@ -6075,6 +6076,17 @@ function render(now){
   const s = (!reduceMotion.matches && now < shakeUntil) ? CONFIG.screenShake.px : 0;
   const dx = s ? (visualRandom()*2-1)*s : 0, dy = s ? (visualRandom()*2-1)*s : 0;
   stageEl.style.transform = `${fitTransform()} translate(${dx}px,${dy}px)`;
+  /* THE CONTROLS DO NOT SHAKE. The touch layer is a child of the stage on
+     purpose -- that is what keeps it scaled and positioned with the game -- so
+     it inherits the shake, and a control that moves under the thumb reads as
+     the button dodging rather than as the game reacting. The playfield is the
+     thing responding; the pad is furniture in the room.
+
+     Cancelled rather than reparented, so the layer keeps every other property
+     of living inside the stage. The offset is applied INSIDE the same scale
+     the stage carries, so an equal and opposite translate cancels it exactly
+     -- no division by fitScale, which would over-correct. */
+  if (touchEl) touchEl.style.transform = s ? `translate(${-dx}px,${-dy}px)` : "";
 }
 const getCSS = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
 
@@ -6462,6 +6474,18 @@ const Sound = {
     // returning player would have gone on hearing the retired track.
     const a = new Audio(); a.src = bust(src); a.loop = !!loop; a.volume = vol;
     a.addEventListener("error", ()=>{ a.dataset.silent="1"; }, {once:true});
+    /* A PAUSE WE DID NOT ASK FOR IS AN INTERRUPTION, AND IT IS RECOVERABLE.
+       iOS gives a page ONE audio session. Resuming the Web Audio context
+       reconfigures it, and that interrupts the media element carrying the
+       music -- so a contact sound could stop the song. dataset.want records
+       what this code last asked for, so an unrequested pause can be told
+       apart from hold(), stopAll() or the mute switch, and only that kind is
+       undone. Without the distinction, it would override the pause screen. */
+    a.addEventListener("pause", ()=>{
+      if (a.dataset.want !== "play" || Sound.muted) return;
+      if (Sound.tracks[Sound.current] !== a) return;
+      a.play().catch(()=>{});
+    });
     this.tracks[name] = a; return a;
   },
   /* Which container this engine actually wants. canPlayType answers probably,
@@ -6520,14 +6544,35 @@ const Sound = {
      Nothing is audible -- the elements do not advance far enough to sound --
      and each is authorised from that point on. Muted or not, because the
      gesture is the only chance to do it and there may not be another. */
-  unlocked:false,
+  unlocked:false, keepAlive:null,
   unlock(){
     if (this.unlocked) return;
     this.unlocked = true;
+    /* AND HOLD THE CONTEXT OPEN. The cure above treats the symptom; this
+       removes the cause. iOS suspends an idle AudioContext, and sfx() resumes
+       it on the next contact sound -- so the session was being reconfigured
+       mid-song, repeatedly, which is heard as the music cutting in and out.
+       A silent looping source keeps the context running, so it never idles
+       and that resume never fires. One sample at zero gain: inaudible, and
+       cheaper than the interruption it prevents. Started here because a
+       context may only be resumed from a gesture. */
+    if (this.ctx){
+      if (this.ctx.state === "suspended") this.ctx.resume();
+      if (!this.keepAlive){
+        const src = this.ctx.createBufferSource();
+        src.buffer = this.ctx.createBuffer(1, 1, this.ctx.sampleRate);
+        src.loop = true;
+        const g = this.ctx.createGain(); g.gain.value = 0;
+        src.connect(g).connect(this.ctx.destination);
+        src.start();
+        this.keepAlive = src;
+      }
+    }
     for (const k in this.tracks){
       const a = this.tracks[k];
       if (!a || a.dataset.silent) continue;
-      const quiet = () => { if (k !== this.current || this.muted){ a.pause(); try { a.currentTime = 0; } catch(_){} } };
+      const quiet = () => { if (k !== this.current || this.muted){
+        a.dataset.want="pause"; a.pause(); try { a.currentTime = 0; } catch(_){} } };
       let p; try { p = a.play(); } catch(_){ continue; }
       if (p && p.then) p.then(quiet, ()=>{}); else quiet();
     }
@@ -6614,7 +6659,7 @@ const Sound = {
            const a=this.tracks[k];
            if(!a||a.dataset.silent) return;
            this.current=k; if(this.muted) return;
-           a.currentTime=0; a.play().catch(()=>{}); },
+           a.currentTime=0; a.dataset.want="play"; a.play().catch(()=>{}); },
   /* START IT ONLY IF IT IS NOT ALREADY RUNNING. play() sets currentTime to 0.
      That is right when a new track takes over and wrong every other time.
      titleScreen() called stopAll and then play on EVERY draw. The attract cycle
@@ -6633,13 +6678,15 @@ const Sound = {
   /* Pausing must not restart the loop, and must not advance the rotation:
      coming back from the pause screen into a different song half a bar in is
      a bug the player hears as the game losing its place. */
-  hold(){ const a=this.tracks[this.current]; if(a) a.pause(); },
+  hold(){ const a=this.tracks[this.current]; if(a){ a.dataset.want="pause"; a.pause(); } },
   unhold(){ const a=this.tracks[this.current];
-            if(a && !this.muted) a.play().catch(()=>{}); },
+            if(a && !this.muted){ a.dataset.want="play"; a.play().catch(()=>{}); } },
   stop(n){ for (const k of (this.variants[n] || [n])){
-             const a=this.tracks[k]; if(!a) continue; a.pause();
+             const a=this.tracks[k]; if(!a) continue;
+             a.dataset.want="pause"; a.pause();
              if(this.current===k) this.current=null; } },
-  stopAll(){ for(const k in this.tracks){ const a=this.tracks[k]; if(a) a.pause(); }
+  stopAll(){ for(const k in this.tracks){ const a=this.tracks[k];
+               if(a){ a.dataset.want="pause"; a.pause(); } }
              this.current=null; },
   // Unmuting mid-round has to pick the loop back up, otherwise the switch
   // reads as broken until the next round starts.
@@ -6655,10 +6702,11 @@ const Sound = {
       g.linearRampToValueAtTime(v ? 0 : 1, t + 0.015);
       if (!v && this.ctx.state === "suspended") this.ctx.resume();
     }
-    if (v){ for(const k in this.tracks) this.tracks[k].pause(); }
+    if (v){ for(const k in this.tracks){ const a=this.tracks[k];
+              a.dataset.want="pause"; a.pause(); } }
     else if (this.current){
       const a=this.tracks[this.current];
-      if (a && !a.dataset.silent) a.play().catch(()=>{});
+      if (a && !a.dataset.silent){ a.dataset.want="play"; a.play().catch(()=>{}); }
     }
   },
 };

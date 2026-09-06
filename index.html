@@ -704,6 +704,17 @@ img{-webkit-user-drag:none;user-drag:none;pointer-events:none}
    above it -- caps, tracked, centred -- so it reads as the last item of the
    small print rather than as debug text someone forgot to remove. */
 .keyfoot.build{margin-top:14px;font-size:14px;opacity:.3;letter-spacing:4px}
+/* THE BYLINE READS AS THE SAME SMALL PRINT AS THE BUILD LINE, and its link is
+   not supposed to announce itself -- no colour of its own, no underline, no
+   visited state. `color:inherit` covers :visited too, which is the one that
+   would otherwise change weeks later on somebody else's machine and never on
+   mine. It sits directly under the fingerprint, so the margin is tightened
+   from the 14px that separates the build line from the table above it. */
+.keyfoot.byline{margin-top:4px}
+.keyfoot.byline a{
+  color:inherit;text-decoration:none;font:inherit;letter-spacing:inherit;
+  -webkit-tap-highlight-color:transparent;
+}
 /* The record line. Quieter than the verdict above it by design -- it is a
    footnote to the result, not a second headline competing with WINS THE
    BENCHMARK. NEW RECORD is the one that earns the gold. */
@@ -3776,6 +3787,17 @@ addEventListener("touchmove", e => { if (e.touches.length > 1) e.preventDefault(
 // one runs the phase has already moved on and it cannot double-start.
 for (const ev of ["pointerdown","touchstart"])
   addEventListener(ev, ()=>{ noteInput(); pointerAdvance(); }, {passive:true});
+/* EXCEPT ON THE BYLINE. Anywhere else a tap advances the screen, so following
+   the link would open the site AND start a game behind it. Stopping the
+   pointer event is enough and is the least invasive thing that works:
+   navigation is driven by the click that follows, which is a separate event
+   and still arrives, so the link behaves normally while the screen stays put.
+   Capture phase, because the advance handlers are on the window and this has
+   to run before them. Listeners already registered on the window for this same
+   phase still fire, so the first-gesture audio unlock is unaffected. */
+addEventListener("pointerdown", e => {
+  if (e.target.closest && e.target.closest(".byline a")) e.stopPropagation();
+}, true);
 
 /* #touch in the URL fragment forces the touch build on a desktop browser. It
    is not debug residue. The mobile path has on-screen controls, a single
@@ -7044,7 +7066,10 @@ function controlsHTML(){
      would be litter.
      Touch has no key table to print, so it gets the line on its own rather
      than losing it: the build is the one thing a bug report needs. */
-  const buildLine = `<div class="keyfoot build">BUILD ${BUILD.toUpperCase()}</div>`;
+  const buildLine =
+    `<div class="keyfoot build">BUILD ${BUILD.toUpperCase()}</div>` +
+    `<div class="keyfoot build byline">BY <a href="https://jakemccuistion.com"` +
+    ` target="_blank" rel="noopener noreferrer">JAKE MCCUISTION</a></div>`;
   if (isTouch) return `<div class="hint">${buildLine}</div>`;
   const K = CONFIG.keys;
   // Two columns, because there are only two sets of keys. The solo column was

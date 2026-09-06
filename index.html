@@ -6727,6 +6727,15 @@ const Sound = {
     // game authorises the music too and the switch works from then on.
     for (const ev of ["pointerdown", "touchend", "keydown"])
       addEventListener(ev, () => this.unlock(), { once:true, capture:true });
+    /* AND EVERY LATER GESTURE IS A CHANCE TO RECOVER THE CONTEXT. sfx() no
+       longer resumes, so something has to, and a gesture is the only moment
+       where resuming is both permitted and cheap. Not `once`: a context can be
+       suspended again at any time by an interruption the page never sees.
+       The state test keeps this free on the overwhelming majority of taps. */
+    for (const ev of ["pointerdown", "touchend", "keydown"])
+      addEventListener(ev, () => {
+        if (this.ctx && this.ctx.state === "suspended") this.ctx.resume();
+      }, { capture:true, passive:true });
   },
 
   /* A GESTURE AUTHORISES AN ELEMENT, NOT THE PAGE. iOS grants playback to the
@@ -6784,8 +6793,15 @@ const Sound = {
     if (this.ctx){
       if (this.ctx.state === "suspended") this.ctx.resume();
       if (!this.keepAlive){
+        // TWO SECONDS OF SILENCE, NOT ONE SAMPLE. A single frame on loop is a
+        // pathological source -- it asks the engine to wrap 44,100 times a
+        // second -- and an engine entitled to treat that as nothing does, at
+        // which point the context idles, iOS suspends it, and the resume this
+        // was meant to prevent happens anyway. A buffer of real length is
+        // unambiguously a running source. Two seconds of zeroes is 350KB and
+        // costs nothing to keep.
         const src = this.ctx.createBufferSource();
-        src.buffer = this.ctx.createBuffer(1, 1, this.ctx.sampleRate);
+        src.buffer = this.ctx.createBuffer(1, this.ctx.sampleRate * 2, this.ctx.sampleRate);
         src.loop = true;
         const g = this.ctx.createGain(); g.gain.value = 0;
         src.connect(g).connect(this.ctx.destination);
@@ -6846,7 +6862,14 @@ const Sound = {
     if (this.muted || !this.ctx) return;
     const buf = this.buffers[id];
     if (!buf) return;              // decode still in flight; drop it silently
-    if (this.ctx.state === "suspended") this.ctx.resume();
+    /* NEVER RESUME FROM HERE. Resuming reconfigures the one audio session iOS
+       gives a page, and that interrupts the element carrying the music -- so
+       this line, on the hot path of every landed response, was the music
+       dropping out on a contact sound. Skipping the sound is the lesser loss
+       by a wide margin: one contact goes quiet instead of the track.
+       Resuming is a thing to do from a gesture, which is where it is allowed
+       and where it costs nothing, and that is wired up below. */
+    if (this.ctx.state !== "running") return;
     const src = this.ctx.createBufferSource();
     src.buffer = buf;
     const d = CONFIG.audio.sfxDetune;

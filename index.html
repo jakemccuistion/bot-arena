@@ -834,6 +834,15 @@ img{-webkit-user-drag:none;user-drag:none;pointer-events:none}
   text-shadow:none;transform:translateY(-3px);
   box-shadow:0 0 26px rgba(255,47,208,.6);
 }
+/* BUT NOT ON TOUCH. The lift is an affordance for a selection that moves under
+   arrow keys, where the button is never beneath the hand. A tap is different:
+   the control shifts 3px at the moment the thumb is on it, and every change of
+   selection drops the old button as it raises the new one, so the whole row
+   twitches on a screen where the row is what you are aiming at. Steady targets
+   matter more here than the lift is worth.
+   Nothing is lost by dropping it. The selection is already carried by a full
+   colour inversion and by the caret below, either of which reads on its own. */
+body.touch .choice.sel{transform:none}
 /* A caret as well as the colour, so the selection does not depend on hue
    alone — it survives a colour-blind player and a washed-out TV. */
 .choice.sel::before{

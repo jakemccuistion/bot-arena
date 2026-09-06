@@ -6641,9 +6641,27 @@ const Sound = {
        what this code last asked for, so an unrequested pause can be told
        apart from hold(), stopAll() or the mute switch, and only that kind is
        undone. Without the distinction, it would override the pause screen. */
+    /* AND IT IS BOUNDED, because a recovery that cannot give up is a runaway.
+       If the element pauses again as soon as it is started -- which is what
+       contention over that one audio session looks like from here -- then
+       pause calls play, play produces another pause, and the two chase each
+       other as fast as the event loop allows until the tab gives out. That is
+       not a hypothetical: the symptom was Safari reporting a repeated problem
+       at the moment a round begins, which is the moment the track changes.
+       Three attempts inside three seconds is enough for a real interruption,
+       which is a single event, and far too few to melt anything. The counter
+       clears once the music has held for the length of the window, so a later
+       interruption is treated on its own merits rather than inheriting the
+       budget of an earlier one. */
     a.addEventListener("pause", ()=>{
       if (a.dataset.want !== "play" || Sound.muted) return;
       if (Sound.tracks[Sound.current] !== a) return;
+      const now = performance.now();
+      if (now - (+a.dataset.recoverAt || 0) > 3000) a.dataset.recover = "0";
+      const tries = +a.dataset.recover || 0;
+      if (tries >= 3) return;
+      a.dataset.recover = String(tries + 1);
+      a.dataset.recoverAt = String(now);
       a.play().catch(()=>{});
     });
     this.tracks[name] = a; return a;

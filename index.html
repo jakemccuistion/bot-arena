@@ -6498,6 +6498,39 @@ const Sound = {
     this.make("victory",C.victory+ e, false,C.stingVolume);
     this.make("loss",   C.loss   + e, false,C.stingVolume);
     this.initSfx();
+    // The first gesture of any kind unlocks the whole set -- see unlock().
+    // Registered here rather than on the sound button alone, so starting a
+    // game authorises the music too and the switch works from then on.
+    for (const ev of ["pointerdown", "touchend", "keydown"])
+      addEventListener(ev, () => this.unlock(), { once:true, capture:true });
+  },
+
+  /* A GESTURE AUTHORISES AN ELEMENT, NOT THE PAGE. iOS grants playback to the
+     media element that was played DURING a user gesture and to no other. The
+     mute switch starts only the CURRENT track, so exactly one of the eleven
+     elements was ever authorised; every other one begins from a timer -- a
+     round starting, the attract cycle turning over -- and is refused. The
+     music therefore plays until the song changes, and whether it plays at all
+     depends on which track happened to be current when the switch was tapped.
+
+     It fails silently because a refused play() rejects a promise, and every
+     call site here ends in .catch(()=>{}).
+
+     So the first gesture touches all of them: play, then pause immediately.
+     Nothing is audible -- the elements do not advance far enough to sound --
+     and each is authorised from that point on. Muted or not, because the
+     gesture is the only chance to do it and there may not be another. */
+  unlocked:false,
+  unlock(){
+    if (this.unlocked) return;
+    this.unlocked = true;
+    for (const k in this.tracks){
+      const a = this.tracks[k];
+      if (!a || a.dataset.silent) continue;
+      const quiet = () => { if (k !== this.current || this.muted){ a.pause(); try { a.currentTime = 0; } catch(_){} } };
+      let p; try { p = a.play(); } catch(_){ continue; }
+      if (p && p.then) p.then(quiet, ()=>{}); else quiet();
+    }
   },
   /* ---- impacts: Web Audio, deliberately NOT media elements -------------
      Music stays on <audio> because that is what media elements are good at:
@@ -7011,6 +7044,9 @@ function togglePause(){
   }
 }
 function toggleMute(){
+  // Belt and braces: the capture-phase listener has normally already run, but
+  // the authorisation has to happen inside a gesture and this IS one.
+  Sound.unlock();
   Sound.setMuted(!Sound.muted);
   el("muteBtn").classList.toggle("on", !Sound.muted);
 }

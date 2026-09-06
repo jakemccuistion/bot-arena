@@ -6670,26 +6670,19 @@ const Sound = {
        what this code last asked for, so an unrequested pause can be told
        apart from hold(), stopAll() or the mute switch, and only that kind is
        undone. Without the distinction, it would override the pause screen. */
-    /* AND IT IS BOUNDED, because a recovery that cannot give up is a runaway.
-       If the element pauses again as soon as it is started -- which is what
-       contention over that one audio session looks like from here -- then
-       pause calls play, play produces another pause, and the two chase each
-       other as fast as the event loop allows until the tab gives out. That is
-       not a hypothetical: the symptom was Safari reporting a repeated problem
-       at the moment a round begins, which is the moment the track changes.
-       Three attempts inside three seconds is enough for a real interruption,
-       which is a single event, and far too few to melt anything. The counter
-       clears once the music has held for the length of the window, so a later
-       interruption is treated on its own merits rather than inheriting the
-       budget of an earlier one. */
+    /* AND IT IS RATE-LIMITED, NOT COUNTED. A recovery that cannot give up is a
+       runaway -- pause calls play, play produces another pause, and the two
+       chase each other as fast as the event loop allows until the tab gives
+       out. But a recovery that gives up PERMANENTLY is silence, which is the
+       other failure and the one a player actually notices. A count of attempts
+       chooses one of those; a limit on the RATE avoids both, because what
+       makes a runaway dangerous is its frequency and not its persistence.
+       Four attempts a second cannot melt anything and never stops trying. */
     a.addEventListener("pause", ()=>{
       if (a.dataset.want !== "play" || Sound.muted) return;
       if (Sound.tracks[Sound.current] !== a) return;
       const now = performance.now();
-      if (now - (+a.dataset.recoverAt || 0) > 3000) a.dataset.recover = "0";
-      const tries = +a.dataset.recover || 0;
-      if (tries >= 3) return;
-      a.dataset.recover = String(tries + 1);
+      if (now - (+a.dataset.recoverAt || 0) < 250) return;
       a.dataset.recoverAt = String(now);
       a.play().catch(()=>{});
     });
@@ -6751,6 +6744,31 @@ const Sound = {
      Nothing is audible -- the elements do not advance far enough to sound --
      and each is authorised from that point on. Muted or not, because the
      gesture is the only chance to do it and there may not be another. */
+  /* ONE SESSION, ONE GRAPH -- the cure rather than the recovery above.
+     iOS gives a page a single audio session. Music on a media element and
+     contact sounds on a Web Audio context are two claimants on it, and the
+     symptom of them contending is the music stopping when a sound plays.
+     Routing the elements THROUGH the context ends the contention: there is
+     then one output, and nothing to interrupt.
+     The elements keep streaming, which is why they were chosen -- a track held
+     as a decoded buffer is tens of megabytes, and there are sixteen of them.
+     createMediaElementSource does not change that; it redirects the output of
+     a still-streaming element into the graph.
+     It may only be called once per element and errors on a second attempt, so
+     the flag is the guard. If it is unavailable the element keeps its own
+     output and behaves exactly as it did before -- worse on iOS, unchanged
+     everywhere else, and never silent. */
+  route(){
+    if (!this.ctx || !this.musicGain) return;
+    for (const k in this.tracks){
+      const a = this.tracks[k];
+      if (!a || a.dataset.routed) continue;
+      try {
+        this.ctx.createMediaElementSource(a).connect(this.musicGain);
+        a.dataset.routed = "1";
+      } catch(_){ a.dataset.routed = "no"; }
+    }
+  },
   unlocked:false, keepAlive:null,
   unlock(){
     if (this.unlocked) return;
@@ -6774,6 +6792,7 @@ const Sound = {
         src.start();
         this.keepAlive = src;
       }
+      this.route();
     }
     for (const k in this.tracks){
       const a = this.tracks[k];
@@ -6802,7 +6821,7 @@ const Sound = {
      A decoded AudioBuffer has no readyState to climb (0.1ms, no spread).
      Source nodes are cheap, single-use and self-collecting, so there is no
      pool to size and no ceiling on overlap. --------------------------------- */
-  ctx:null, buffers:{}, sfxGain:null,
+  ctx:null, buffers:{}, sfxGain:null, musicGain:null,
   initSfx(){
     const AC = window.AudioContext || window.webkitAudioContext;
     if (!AC) return;               // no Web Audio: silent concessions, not a crash
@@ -6810,6 +6829,8 @@ const Sound = {
     this.sfxGain = this.ctx.createGain();
     this.sfxGain.gain.value = this.muted ? 0 : 1;
     this.sfxGain.connect(this.ctx.destination);
+    this.musicGain = this.ctx.createGain();
+    this.musicGain.connect(this.ctx.destination);
     // Decode NOW, while the context is still suspended, so the buffers are
     // ready long before the first conceded instead of racing it.
     for (const id in SFX_DATA){
